@@ -1,17 +1,20 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Minus, Plus, Trash2, Tag, ShoppingBag, ArrowRight } from "lucide-react";
 import { Layout } from "@/components/Layout";
 import { useCart } from "@/store/cart";
+import { useAuth } from "@/store/auth";
 import { toast } from "sonner";
+import { placeOrderFn } from "@/lib/backend/server";
 
 export const Route = createFileRoute("/cart")({
   head: () => ({
     meta: [
-      { title: "Your Cart — OrderX" },
+      { title: "Your Cart - OrderX" },
       { name: "description", content: "Review your order and check out securely on OrderX." },
-      { property: "og:title", content: "Your Cart — OrderX" },
+      { property: "og:title", content: "Your Cart - OrderX" },
       { property: "og:description", content: "Review your order and check out securely on OrderX." },
     ],
   }),
@@ -19,14 +22,22 @@ export const Route = createFileRoute("/cart")({
 });
 
 function CartPage() {
+  const navigate = useNavigate();
+  const placeOrder = useServerFn(placeOrderFn);
+
   const items = useCart((s) => s.items);
   const subtotal = useCart((s) => s.subtotal());
   const setQty = useCart((s) => s.setQty);
   const remove = useCart((s) => s.remove);
   const clear = useCart((s) => s.clear);
+  const user = useAuth((s) => s.user);
 
   const [coupon, setCoupon] = useState("");
   const [discount, setDiscount] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState<"cod" | "card" | "upi">("cod");
+  const [deliveryAddress, setDeliveryAddress] = useState(user?.address ?? "");
+  const [note, setNote] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const deliveryFee = items.length > 0 ? 2.99 : 0;
   const tax = subtotal * 0.08;
@@ -35,10 +46,58 @@ function CartPage() {
   const applyCoupon = () => {
     if (coupon.trim().toUpperCase() === "FRESH10") {
       setDiscount(subtotal * 0.1);
-      toast.success("Coupon applied — 10% off!");
+      toast.success("Coupon applied - 10% off!");
     } else {
       setDiscount(0);
       toast.error("Invalid coupon code");
+    }
+  };
+
+  const handleCheckout = async () => {
+    if (!user) {
+      toast.error("Please login first to place your order.");
+      await navigate({ to: "/login" });
+      return;
+    }
+
+    if (!deliveryAddress.trim()) {
+      toast.error("Please enter delivery address.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const response = await placeOrder({
+        data: {
+          userId: user.id,
+          items: items.map((item) => ({
+            itemId: item.id,
+            name: item.name,
+            price: item.price,
+            quantity: item.quantity,
+            image: item.image,
+            restaurantId: item.restaurantId,
+            restaurantName: item.restaurantName,
+          })),
+          paymentMethod,
+          deliveryAddress,
+          note: note.trim() || undefined,
+          discount,
+        },
+      });
+
+      if (!response.ok) {
+        toast.error("Unable to place order.");
+        return;
+      }
+
+      clear();
+      toast.success(`Order placed successfully. Order ID: ${response.order.id}`);
+      await navigate({ to: "/dashboard" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Checkout failed.");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -50,8 +109,11 @@ function CartPage() {
             <ShoppingBag className="h-9 w-9" />
           </span>
           <h1 className="mt-6 font-display text-3xl font-black">Your cart is empty</h1>
-          <p className="mt-2 text-muted-foreground">Looks like you haven't added anything yet.</p>
-          <Link to="/restaurants" className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3 font-bold text-brand-foreground shadow-card hover:shadow-glow">
+          <p className="mt-2 text-muted-foreground">Looks like you have not added anything yet.</p>
+          <Link
+            to="/restaurants"
+            className="mt-6 inline-flex items-center gap-2 rounded-full bg-brand px-6 py-3 font-bold text-brand-foreground shadow-card hover:shadow-glow"
+          >
             Browse restaurants <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
@@ -63,10 +125,9 @@ function CartPage() {
     <Layout>
       <section className="container-app py-10">
         <h1 className="font-display text-4xl font-black md:text-5xl">Your Cart</h1>
-        <p className="mt-2 text-muted-foreground">{items.length} items · review before checkout</p>
+        <p className="mt-2 text-muted-foreground">{items.length} items - review before checkout</p>
 
         <div className="mt-8 grid gap-8 lg:grid-cols-[1fr_400px]">
-          {/* Items */}
           <div className="space-y-3">
             {items.map((it, idx) => (
               <motion.div
@@ -103,7 +164,6 @@ function CartPage() {
             </button>
           </div>
 
-          {/* Summary */}
           <aside>
             <div className="sticky top-24 rounded-2xl border border-border bg-card p-6 shadow-card">
               <h2 className="font-display text-xl font-bold">Order summary</h2>
@@ -117,28 +177,76 @@ function CartPage() {
                     className="h-11 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm outline-none focus:border-brand"
                   />
                 </div>
-                <button onClick={applyCoupon} className="rounded-xl border border-brand bg-brand/10 px-4 text-sm font-bold text-brand hover:bg-brand hover:text-brand-foreground">
+                <button
+                  onClick={applyCoupon}
+                  className="rounded-xl border border-brand bg-brand/10 px-4 text-sm font-bold text-brand hover:bg-brand hover:text-brand-foreground"
+                >
                   Apply
                 </button>
               </div>
 
               <dl className="mt-6 space-y-2.5 text-sm">
-                <div className="flex justify-between"><dt className="text-muted-foreground">Subtotal</dt><dd className="font-semibold">${subtotal.toFixed(2)}</dd></div>
-                <div className="flex justify-between"><dt className="text-muted-foreground">Delivery</dt><dd className="font-semibold">${deliveryFee.toFixed(2)}</dd></div>
-                <div className="flex justify-between"><dt className="text-muted-foreground">Tax (8%)</dt><dd className="font-semibold">${tax.toFixed(2)}</dd></div>
-                {discount > 0 && (
-                  <div className="flex justify-between text-success"><dt>Discount</dt><dd className="font-semibold">−${discount.toFixed(2)}</dd></div>
-                )}
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Subtotal</dt>
+                  <dd className="font-semibold">${subtotal.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Delivery</dt>
+                  <dd className="font-semibold">${deliveryFee.toFixed(2)}</dd>
+                </div>
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Tax (8%)</dt>
+                  <dd className="font-semibold">${tax.toFixed(2)}</dd>
+                </div>
+                {discount > 0 ? (
+                  <div className="flex justify-between text-success">
+                    <dt>Discount</dt>
+                    <dd className="font-semibold">-${discount.toFixed(2)}</dd>
+                  </div>
+                ) : null}
               </dl>
+
               <div className="mt-5 flex items-center justify-between border-t border-border pt-4">
                 <span className="font-display text-base font-bold">Total</span>
                 <span className="font-display text-2xl font-black text-brand">${total.toFixed(2)}</span>
               </div>
+
+              <div className="mt-4 space-y-3">
+                <input
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  placeholder="Delivery address"
+                  className="h-11 w-full rounded-xl border border-border bg-background px-3 text-sm outline-none focus:border-brand"
+                />
+                <div className="grid grid-cols-3 gap-2 text-xs font-semibold">
+                  {(["cod", "card", "upi"] as const).map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setPaymentMethod(method)}
+                      className={`rounded-xl border px-2 py-2 uppercase transition ${
+                        paymentMethod === method
+                          ? "border-brand bg-brand text-brand-foreground"
+                          : "border-border bg-background hover:border-brand"
+                      }`}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  placeholder="Add a note for delivery partner (optional)"
+                  className="min-h-20 w-full rounded-xl border border-border bg-background px-3 py-2 text-sm outline-none focus:border-brand"
+                />
+              </div>
+
               <button
-                onClick={() => toast.success("Order placed! 🎉 (demo)")}
+                onClick={handleCheckout}
                 className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand py-3.5 font-bold text-brand-foreground shadow-card-hover transition hover:-translate-y-0.5 hover:shadow-glow"
               >
-                Checkout securely <ArrowRight className="h-4 w-4" />
+                {submitting ? "Placing order..." : "Checkout securely"} <ArrowRight className="h-4 w-4" />
               </button>
               <p className="mt-3 text-center text-xs text-muted-foreground">Free delivery on orders over $20</p>
             </div>

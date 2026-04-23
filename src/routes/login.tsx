@@ -1,7 +1,15 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
+import { type FormEvent, useState } from "react";
 import { Layout } from "@/components/Layout";
 import { toast } from "sonner";
+import { loginUserFn, registerUserFn } from "@/lib/backend/server";
+import { useAuth } from "@/store/auth";
+
+const DEFAULT_LOGIN_ID = import.meta.env.VITE_DEFAULT_LOGIN_ID ?? "demo@orderx.com";
+const DEFAULT_LOGIN_PASSWORD = import.meta.env.VITE_DEFAULT_LOGIN_PASSWORD ?? "demo123";
+const DEFAULT_ADMIN_LOGIN_ID = import.meta.env.VITE_ADMIN_LOGIN_ID ?? "admin@orderx.com";
+const DEFAULT_ADMIN_LOGIN_PASSWORD = import.meta.env.VITE_ADMIN_LOGIN_PASSWORD ?? "admin123";
 
 export const Route = createFileRoute("/login")({
   head: () => ({
@@ -16,7 +24,73 @@ export const Route = createFileRoute("/login")({
 });
 
 function LoginPage() {
+  const navigate = useNavigate();
+  const login = useServerFn(loginUserFn);
+  const register = useServerFn(registerUserFn);
+  const setAuth = useAuth((s) => s.setAuth);
+
   const [mode, setMode] = useState<"login" | "signup">("login");
+  const [fullName, setFullName] = useState("");
+  const [loginId, setLoginId] = useState(DEFAULT_LOGIN_ID);
+  const [password, setPassword] = useState(DEFAULT_LOGIN_PASSWORD);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      if (mode === "signup") {
+        if (!fullName.trim()) {
+          toast.error("Please enter your full name.");
+          return;
+        }
+        if (!loginId.trim() || !password.trim()) {
+          toast.error("Please fill login ID and password.");
+          return;
+        }
+
+        const response = await register({
+          data: {
+            name: fullName,
+            loginId,
+            password,
+          },
+        });
+
+        if (!response.ok) {
+          toast.error(response.message);
+          return;
+        }
+
+        setAuth(response.user);
+        toast.success("Account created successfully.");
+        await navigate({ to: "/dashboard" });
+        return;
+      }
+
+      const response = await login({
+        data: {
+          loginId,
+          password,
+        },
+      });
+
+      if (!response.ok) {
+        toast.error(response.message);
+        return;
+      }
+
+      setAuth(response.user);
+      toast.success(`Welcome back, ${response.user.name}!`);
+      await navigate({ to: response.user.role === "admin" ? "/admin" : "/dashboard" });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Unable to login right now.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <Layout>
       <section className="container-app grid min-h-[80vh] items-center py-16 md:grid-cols-2">
@@ -42,22 +116,67 @@ function LoginPage() {
               </button>
             ))}
           </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              toast.success(mode === "login" ? "Welcome back!" : "Account created (demo)");
-            }}
-            className="mt-6 space-y-4"
-          >
+          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             {mode === "signup" && (
-              <input placeholder="Full name" className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-brand" />
+              <input
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                placeholder="Full name"
+                className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-brand"
+              />
             )}
-            <input type="email" placeholder="Email address" className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-brand" />
-            <input type="password" placeholder="Password" className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-brand" />
+            <input
+              type="text"
+              value={loginId}
+              onChange={(e) => setLoginId(e.target.value)}
+              placeholder="Login ID"
+              className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-brand"
+            />
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className="h-12 w-full rounded-xl border border-border bg-background px-4 text-sm outline-none focus:border-brand"
+            />
             <button type="submit" className="h-12 w-full rounded-xl bg-brand font-bold text-brand-foreground shadow-card transition hover:shadow-glow">
-              {mode === "login" ? "Log in" : "Create account"}
+              {submitting ? "Please wait..." : mode === "login" ? "Log in" : "Create account"}
             </button>
           </form>
+          {mode === "login" && (
+            <div className="mt-4 space-y-2 rounded-xl border border-dashed border-border p-3 text-xs text-muted-foreground">
+              <p>
+                User demo: <span className="font-semibold text-foreground">{DEFAULT_LOGIN_ID}</span> /{" "}
+                <span className="font-semibold text-foreground">{DEFAULT_LOGIN_PASSWORD}</span>
+              </p>
+              <p>
+                Admin demo: <span className="font-semibold text-foreground">{DEFAULT_ADMIN_LOGIN_ID}</span> /{" "}
+                <span className="font-semibold text-foreground">{DEFAULT_ADMIN_LOGIN_PASSWORD}</span>
+              </p>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginId(DEFAULT_LOGIN_ID);
+                    setPassword(DEFAULT_LOGIN_PASSWORD);
+                  }}
+                  className="rounded-full border border-border px-3 py-1 font-semibold hover:border-brand hover:text-brand"
+                >
+                  Use user demo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setLoginId(DEFAULT_ADMIN_LOGIN_ID);
+                    setPassword(DEFAULT_ADMIN_LOGIN_PASSWORD);
+                  }}
+                  className="rounded-full border border-border px-3 py-1 font-semibold hover:border-brand hover:text-brand"
+                >
+                  Use admin demo
+                </button>
+              </div>
+            </div>
+          )}
           <p className="mt-6 text-center text-xs text-muted-foreground">
             By continuing you agree to our <Link to="/" className="font-semibold text-brand">Terms</Link>.
           </p>

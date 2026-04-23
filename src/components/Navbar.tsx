@@ -1,12 +1,16 @@
 import { Link } from "@tanstack/react-router";
-import { Search, ShoppingBag, MapPin, User, Menu } from "lucide-react";
+import { Search, ShoppingBag, MapPin, User, Menu, LogOut, ShieldCheck } from "lucide-react";
 import { useCart } from "@/store/cart";
 import { Button } from "@/components/ui/button";
 import { useState } from "react";
+import { useAuth } from "@/store/auth";
+import { toast } from "sonner";
 
 export function Navbar() {
   const count = useCart((s) => s.count());
   const [open, setOpen] = useState(false);
+  const user = useAuth((s) => s.user);
+  const logout = useAuth((s) => s.logout);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/85 backdrop-blur-md">
@@ -42,11 +46,33 @@ export function Navbar() {
           >
             Restaurants
           </Link>
-          <Button variant="ghost" size="sm" className="hidden md:inline-flex" asChild>
-            <Link to="/login">
-              <User className="h-4 w-4" /> Log in
-            </Link>
-          </Button>
+          {user ? (
+            <>
+              <Button variant="ghost" size="sm" className="hidden md:inline-flex" asChild>
+                <Link to={user.role === "admin" ? "/admin" : "/dashboard"}>
+                  {user.role === "admin" ? <ShieldCheck className="h-4 w-4" /> : <User className="h-4 w-4" />}
+                  {user.role === "admin" ? "Admin" : "Dashboard"}
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="hidden md:inline-flex"
+                onClick={() => {
+                  logout();
+                  toast.success("Logged out successfully.");
+                }}
+              >
+                <LogOut className="h-4 w-4" /> Logout
+              </Button>
+            </>
+          ) : (
+            <Button variant="ghost" size="sm" className="hidden md:inline-flex" asChild>
+              <Link to="/login">
+                <User className="h-4 w-4" /> Log in
+              </Link>
+            </Button>
+          )}
           <Link
             to="/cart"
             className="relative inline-flex h-10 items-center gap-2 rounded-full bg-brand px-4 text-sm font-semibold text-brand-foreground shadow-card transition hover:shadow-card-hover hover:-translate-y-0.5"
@@ -70,9 +96,30 @@ export function Navbar() {
             <Link to="/restaurants" className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-secondary">
               Restaurants
             </Link>
-            <Link to="/login" className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-secondary">
-              Log in
-            </Link>
+            {user ? (
+              <>
+                <Link
+                  to={user.role === "admin" ? "/admin" : "/dashboard"}
+                  className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-secondary"
+                >
+                  {user.role === "admin" ? "Admin Dashboard" : "Dashboard"}
+                </Link>
+                <button
+                  onClick={() => {
+                    logout();
+                    setOpen(false);
+                    toast.success("Logged out successfully.");
+                  }}
+                  className="rounded-lg px-3 py-2 text-left text-sm font-medium hover:bg-secondary"
+                >
+                  Logout
+                </button>
+              </>
+            ) : (
+              <Link to="/login" className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-secondary">
+                Log in
+              </Link>
+            )}
           </div>
         </div>
       )}
